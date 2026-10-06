@@ -1,0 +1,4 @@
+node_modules
+task/
+.env.local
+api/data/

@@ -1,0 +1,11 @@
+{
+  "name": "payments",
+  "private": true,
+  "workspaces": ["api"],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "test": "npm test -w api"
+  }
+}
