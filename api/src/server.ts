@@ -4,6 +4,7 @@ import { buildApp, buildNotConnectedApp } from './app.js';
 import { loadConfig } from './config.js';
 import { migrate, openDb } from './db.js';
 import { createMockpayClient } from './mockpay.js';
+import { createReceipts } from './receipts.js';
 
 const PORT = 3000;
 const config = loadConfig();
@@ -20,8 +21,7 @@ if (!config) {
   app = buildApp({
     db,
     mockpay: createMockpayClient(`${config.standUrl}/s/${config.code}/mockpay`),
-    // Реальная отправка чеков подключается отдельно
-    receipts: { send: async () => {} },
+    receipts: createReceipts(`${config.standUrl}/s/${config.code}`),
     webhookSecret: config.webhookSecret,
   });
 }

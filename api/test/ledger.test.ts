@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { migrate, openDb } from '../src/db.js';
+import { migrate, openDb, transaction } from '../src/db.js';
 import { getBalance, postCredit, postDebit } from '../src/ledger.js';
 import { loadSeed, type Seed } from '../src/seed.js';
 
@@ -78,4 +78,40 @@ test('loadSeed twice leaves one copy and correct balances', () => {
 
   const acc = db.prepare("SELECT created_at FROM accounts WHERE id = 'acc_a'").get() as { created_at: string };
   assert.equal(acc.created_at, '2025-03-01T10:00:00.000Z');
+});
+
+test('transaction nests: an outer failure rolls back inner postings', () => {
+  const db = setup();
+  assert.throws(() =>
+    transaction(db, () => {
+      postCredit(db, { accountId: 'acc_1', paymentId: 'pay_1', amountMinor: 100 });
+      assert.equal(db.isTransaction, true);
+      throw new Error('boom');
+    }),
+  );
+  assert.equal(db.isTransaction, false);
+  assert.equal(getBalance(db, 'acc_1'), 0);
+  const count = db.prepare('SELECT COUNT(*) AS n FROM ledger_postings').get() as { n: number };
+  assert.equal(count.n, 0);
+});
+
+test('transaction nests: inner postings commit together with the outer one', () => {
+  const db = setup();
+  transaction(db, () => {
+    postCredit(db, { accountId: 'acc_1', paymentId: 'pay_1', amountMinor: 100 });
+    postCredit(db, { accountId: 'acc_1', paymentId: 'pay_1', amountMinor: 50 });
+  });
+  assert.equal(getBalance(db, 'acc_1'), 150);
+});
+
+test('failing ROLLBACK does not mask the original error', () => {
+  const db = setup();
+  assert.throws(
+    () =>
+      transaction(db, () => {
+        db.exec('ROLLBACK'); // транзакция уже закрыта — повторный ROLLBACK в transaction() упадёт
+        throw new Error('original');
+      }),
+    /original/,
+  );
 });
