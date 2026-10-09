@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { AppDeps } from '../app.js';
 import { transaction } from '../db.js';
+import { MockpayError } from '../mockpay.js';
 import { toSums } from '../money.js';
 
 interface PaymentRow {
@@ -56,7 +57,15 @@ export function refundsRoutes(app: FastifyInstance, { db, mockpay }: AppDeps): v
       });
       setProviderId.run(created.id, new Date().toISOString(), id);
     } catch (err) {
-      markFailed.run(new Date().toISOString(), id);
+      if (err instanceof MockpayError) {
+        // Только явный отказ провайдера (4xx) закрывает возврат; при 5xx исход неизвестен
+        if (err.status >= 400 && err.status < 500) {
+          markFailed.run(new Date().toISOString(), id);
+          return reply.code(502).send({ error: 'provider_rejected' });
+        }
+        return reply.code(502).send({ error: 'provider_error' });
+      }
+      // StandUnavailableError: провайдер мог обработать запрос, возврат остаётся в processing до вебхука
       throw err;
     }
 

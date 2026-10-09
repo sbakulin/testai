@@ -157,3 +157,47 @@ test('other routes keep the normal JSON parsing', async () => {
   assert.equal(r.statusCode, 400);
   assert.equal(r.json().error, 'bad_request');
 });
+
+test('validly signed but malformed events → 400 invalid_event', async () => {
+  const { app, db } = setupApp();
+  insertPayment(db);
+  const valid = JSON.parse(paymentEvent('payment.succeeded'));
+  const bodies = [
+    'null',
+    '42',
+    '"text"',
+    '[]',
+    '{}',
+    JSON.stringify({ ...valid, type: 7 }),
+    JSON.stringify({ ...valid, payment: undefined }),
+    JSON.stringify({ ...valid, payment: { id: 'mp_1' } }),
+    JSON.stringify({ ...valid, amount: undefined }),
+    JSON.stringify({ ...valid, amount: 'abc' }),
+    JSON.stringify({ ...valid, amount: '0.00' }),
+    JSON.stringify({ ...valid, amount: '-10.00' }),
+    JSON.stringify({ type: 'refund.succeeded', amount: '-1.00' }),
+    JSON.stringify({ type: 'refund.failed', refund: { id: 'rf_1' } }),
+  ];
+  for (const body of bodies) {
+    const r = await deliver(app, body);
+    assert.equal(r.statusCode, 400, body);
+    assert.deepEqual(r.json(), { error: 'invalid_event' }, body);
+  }
+  assert.equal(getBalance(db, 'acc_1'), 0);
+});
+
+test('unknown event type without a payment is still acknowledged', async () => {
+  const { app } = setupApp();
+  const r = await deliver(app, JSON.stringify({ type: 'something.else' }));
+  assert.equal(r.statusCode, 200);
+});
+
+test('signature must be 64 hex chars; empty or missing body → 401', async () => {
+  const { app } = setupApp();
+  const body = paymentEvent('payment.succeeded');
+  assert.equal((await deliver(app, body, 'zz'.repeat(32))).statusCode, 401);
+  assert.equal((await deliver(app, body, sign(body).slice(0, 62))).statusCode, 401);
+  assert.equal((await deliver(app, '', 'a'.repeat(64))).statusCode, 401);
+  const noBody = await app.inject({ method: 'POST', url: '/webhooks/mockpay', headers: { 'x-signature': 'a'.repeat(64) } });
+  assert.equal(noBody.statusCode, 401);
+});

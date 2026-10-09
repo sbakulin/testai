@@ -9,11 +9,37 @@ interface WebhookEvent {
   type: string;
   payment: { merchant_reference: string };
   amount: string;
-  refund?: { idempotency_key: string };
+  refund: { idempotency_key: string };
+}
+
+const SIGNATURE_RE = /^[0-9a-f]{64}$/i;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Проверяет форму события; для неизвестных типов достаточно строкового type. */
+function parseEvent(raw: string): WebhookEvent | null {
+  const event: unknown = JSON.parse(raw);
+  if (!isRecord(event) || typeof event.type !== 'string') return null;
+  if (event.type.startsWith('payment.')) {
+    if (!isRecord(event.payment) || typeof event.payment.merchant_reference !== 'string') return null;
+    if (event.type === 'payment.succeeded') {
+      if (typeof event.amount !== 'string') return null;
+      try {
+        if (toMinor(event.amount) <= 0) return null;
+      } catch {
+        return null;
+      }
+    }
+  } else if (event.type.startsWith('refund.')) {
+    if (!isRecord(event.refund) || typeof event.refund.idempotency_key !== 'string') return null;
+  }
+  return event as unknown as WebhookEvent;
 }
 
 function signatureMatches(secret: string, rawBody: string, signature: unknown): boolean {
-  if (typeof signature !== 'string') return false;
+  if (typeof signature !== 'string' || !SIGNATURE_RE.test(signature)) return false;
   const expected = createHmac('sha256', secret).update(rawBody).digest();
   const actual = Buffer.from(signature, 'hex');
   return actual.length === expected.length && timingSafeEqual(actual, expected);
@@ -34,17 +60,18 @@ export function webhooksRoutes(app: FastifyInstance, { db, webhookSecret }: AppD
     );
 
     scope.post('/webhooks/mockpay', async (req, reply) => {
-      const raw = req.body as string;
+      const raw = typeof req.body === 'string' ? req.body : '';
       if (!signatureMatches(webhookSecret, raw, req.headers['x-signature'])) {
         return reply.code(401).send({ error: 'invalid_signature' });
       }
 
-      let event: WebhookEvent;
+      let event: WebhookEvent | null;
       try {
-        event = JSON.parse(raw) as WebhookEvent;
+        event = parseEvent(raw);
       } catch {
         return reply.code(400).send({ error: 'invalid_json' });
       }
+      if (!event) return reply.code(400).send({ error: 'invalid_event' });
 
       const now = new Date().toISOString();
       switch (event.type) {
@@ -68,7 +95,7 @@ export function webhooksRoutes(app: FastifyInstance, { db, webhookSecret }: AppD
         }
         case 'refund.succeeded':
         case 'refund.failed': {
-          const refund = findRefund.get(event.refund?.idempotency_key ?? '') as
+          const refund = findRefund.get(event.refund.idempotency_key) as
             | { id: string; payment_id: string; amount_minor: number }
             | undefined;
           if (!refund) return reply.code(404).send({ error: 'refund_not_found' });

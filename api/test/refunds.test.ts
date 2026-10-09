@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { StandUnavailableError } from '../src/mockpay.js';
-import { insertPayment, setupApp } from './helpers.js';
+import { getBalance } from '../src/ledger.js';
+import { MockpayError, StandUnavailableError } from '../src/mockpay.js';
+import { insertPayment, setupApp, sign } from './helpers.js';
 
 function refund(app: ReturnType<typeof setupApp>['app'], payment = 'pay_1', payload: object = { amount_minor: 5000000 }) {
   return app.inject({ method: 'POST', url: `/payments/${payment}/refunds`, payload });
@@ -65,19 +66,78 @@ test('validates payment and amount', async () => {
   }
 });
 
-test('provider down → 502 and the refund is marked failed', async () => {
+test('provider unreachable → 502, refund stays processing and still counts', async () => {
   const { app, db } = setupApp({
     async createRefund() {
       throw new StandUnavailableError();
+    },
+  });
+  insertPayment(db, { status: 'succeeded', amount_minor: 10000 });
+
+  const r = await refund(app, 'pay_1', { amount_minor: 10000 });
+  assert.equal(r.statusCode, 502);
+  assert.deepEqual(r.json(), { error: 'stand_unavailable' });
+  const row = db.prepare('SELECT status FROM refunds').get() as { status: string };
+  assert.equal(row.status, 'processing');
+  // исход у провайдера неизвестен, поэтому сумма остаётся занятой
+  const again = await refund(app, 'pay_1', { amount_minor: 1 });
+  assert.equal(again.statusCode, 422);
+});
+
+test('provider 4xx → 502 provider_rejected, refund marked failed', async () => {
+  const { app, db } = setupApp({
+    async createRefund() {
+      throw new MockpayError(404, 'payment not found');
+    },
+  });
+  insertPayment(db, { status: 'succeeded', amount_minor: 10000 });
+
+  const r = await refund(app, 'pay_1', { amount_minor: 10000 });
+  assert.equal(r.statusCode, 502);
+  assert.deepEqual(r.json(), { error: 'provider_rejected' });
+  const row = db.prepare('SELECT status FROM refunds').get() as { status: string };
+  assert.equal(row.status, 'failed');
+});
+
+test('provider 5xx → 502 provider_error, refund stays processing', async () => {
+  const { app, db } = setupApp({
+    async createRefund() {
+      throw new MockpayError(500, 'boom');
     },
   });
   insertPayment(db, { status: 'succeeded' });
 
   const r = await refund(app);
   assert.equal(r.statusCode, 502);
-  assert.deepEqual(r.json(), { error: 'stand_unavailable' });
+  assert.deepEqual(r.json(), { error: 'provider_error' });
   const row = db.prepare('SELECT status FROM refunds').get() as { status: string };
-  assert.equal(row.status, 'failed');
-  // неудавшийся возврат не занимает сумму платежа
-  assert.equal((await refund(app)).statusCode, 502);
+  assert.equal(row.status, 'processing');
+});
+
+test('refund left processing after an ambiguous error is settled by the webhook', async () => {
+  const { app, db } = setupApp({
+    async createRefund() {
+      throw new StandUnavailableError();
+    },
+  });
+  const { accountId } = insertPayment(db, { status: 'succeeded' });
+  db.prepare('INSERT INTO ledger_balances VALUES (?, 15000000)').run(accountId);
+  const r = await refund(app);
+  assert.equal(r.statusCode, 502);
+  const { id } = db.prepare('SELECT id FROM refunds').get() as { id: string };
+  const body = JSON.stringify({
+    type: 'refund.succeeded',
+    payment: { id: 'mp_pay_1', merchant_reference: 'pay_1' },
+    amount: '-50000.00',
+    currency: 'UZS',
+    refund: { id: 'rf_1', idempotency_key: id },
+  });
+  const hook = await app.inject({
+    method: 'POST',
+    url: '/webhooks/mockpay',
+    headers: { 'content-type': 'application/json', 'x-signature': sign(body) },
+    payload: body,
+  });
+  assert.equal(hook.statusCode, 200);
+  assert.equal(getBalance(db, accountId), 10000000);
 });
