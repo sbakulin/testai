@@ -6,6 +6,14 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "test": "npm test -w api"
+    "connect": "node --disable-warning=ExperimentalWarning --import tsx scripts/connect.mjs",
+    "reset": "node --disable-warning=ExperimentalWarning --import tsx scripts/reset.mjs",
+    "listen": "node --disable-warning=ExperimentalWarning --import tsx scripts/listen.mjs",
+    "dev": "concurrently -n api,listen \"npm run dev -w api\" \"npm run listen\"",
+    "test": "npm test -w api && node --disable-warning=ExperimentalWarning --import tsx --test \"scripts/test/**/*.test.mjs\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "tsx": "^4.23.15"
   }
 }
