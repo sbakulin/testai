@@ -1,0 +1,92 @@
+:root {
+  --bg: #f5f6f8;
+  --surface: #fff;
+  --border: #dfe2e8;
+  --text: #1d2330;
+  --muted: #6b7385;
+  --accent: #2557d6;
+  --danger: #c0392b;
+  --ok: #1e8e4e;
+  --warn: #b7791f;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: 22px; margin: 0; }
+h2 { font-size: 16px; margin: 0 0 12px; }
+h3 { font-size: 14px; margin: 20px 0 8px; }
+code { background: #eceff4; padding: 1px 6px; border-radius: 4px; }
+
+.muted { color: var(--muted); }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.topbar {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  padding: 12px 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.topbar a { font-weight: 600; font-size: 16px; color: var(--text); }
+
+.content { padding: 20px 24px; }
+
+button, input {
+  font: inherit;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+button { cursor: pointer; }
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); }
+th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+th.num, td.num { text-align: right; }
+th { font-weight: 600; color: var(--muted); background: #fafbfc; }
+.accounts { max-width: 720px; }
+.payments tbody tr { cursor: pointer; }
+.payments tbody tr:hover { background: #f3f6fd; }
+.payments tbody tr.selected { background: #e3ebff; }
+
+.account-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 16px; }
+.balance { font-size: 16px; }
+.toolbar { display: flex; gap: 16px; align-items: center; margin-bottom: 12px; }
+.toolbar input { width: 280px; }
+
+.layout { display: flex; gap: 20px; align-items: flex-start; }
+.layout-main { flex: 1; min-width: 0; }
+.layout-side { width: 340px; flex: none; position: sticky; top: 16px; }
+
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+.panel dl { display: grid; grid-template-columns: 80px 1fr; gap: 6px 8px; margin: 0; }
+.panel dt { color: var(--muted); }
+.panel dd { margin: 0; }
+.refunds { list-style: none; margin: 0 0 12px; padding: 0; }
+.refunds li { display: flex; gap: 10px; align-items: baseline; padding: 4px 0; }
+
+.status { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #eceff4; }
+.status-succeeded, .status-refund-succeeded { background: #e1f4e8; color: var(--ok); }
+.status-failed, .status-refund-failed { background: #fbe5e2; color: var(--danger); }
+.status-pending, .status-refund-processing { background: #fbf0d9; color: var(--warn); }
+
+.refund-form { margin-top: 12px; display: grid; gap: 8px; }
+.refund-form label { display: grid; gap: 4px; }
+.actions { display: flex; gap: 8px; }
+.form-error { color: var(--danger); margin: 0; }
+
+.notice { max-width: 480px; margin: 60px auto; padding: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; text-align: center; }

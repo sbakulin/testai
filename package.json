@@ -1,7 +1,7 @@
 {
   "name": "payments",
   "private": true,
-  "workspaces": ["api"],
+  "workspaces": ["api", "web"],
   "engines": {
     "node": ">=22.13"
   },
@@ -9,8 +9,8 @@
     "connect": "node --disable-warning=ExperimentalWarning --import tsx scripts/connect.mjs",
     "reset": "node --disable-warning=ExperimentalWarning --import tsx scripts/reset.mjs",
     "listen": "node --disable-warning=ExperimentalWarning --import tsx scripts/listen.mjs",
-    "dev": "concurrently -n api,listen \"npm run dev -w api\" \"npm run listen\"",
-    "test": "npm test -w api && node --disable-warning=ExperimentalWarning --import tsx --test \"scripts/test/**/*.test.mjs\""
+    "dev": "concurrently -n api,web,listen \"npm run dev -w api\" \"npm run dev -w web\" \"npm run listen\"",
+    "test": "npm test -w api && npm test -w web && node --disable-warning=ExperimentalWarning --import tsx --test \"scripts/test/**/*.test.mjs\""
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
