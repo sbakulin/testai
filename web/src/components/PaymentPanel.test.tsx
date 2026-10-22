@@ -101,4 +101,66 @@ describe('PaymentPanel', () => {
     await waitFor(() => expect(screen.getByTestId('payment-panel-id').textContent).toBe('pay_3'));
     expect(screen.queryByTestId('refund-amount')).toBeNull();
   });
+
+  test('a failed submit reloads the refunds, keeps the form open and notifies', async () => {
+    const user = userEvent.setup();
+    let refunds: PaymentDetails['refunds'] = [];
+    stubFetch((url, init) => {
+      if (init?.method === 'POST') {
+        refunds = [refund('ref_1', 20000, 'processing')];
+        return { status: 502, body: { error: 'provider_error' } };
+      }
+      return { body: details(pay1, refunds) };
+    });
+    const onChanged = vi.fn();
+    render(<PaymentPanel payment={pay1} onChanged={onChanged} />);
+    await user.click(await screen.findByTestId('refund-open'));
+    await user.type(screen.getByTestId('refund-amount'), '200');
+    await user.click(screen.getByTestId('refund-submit'));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Исход неизвестен');
+    expect(await screen.findByText('в обработке')).not.toBeNull();
+    expect(screen.getByTestId('refundable').textContent).toContain('800,00');
+    expect(screen.queryByTestId('refund-amount')).not.toBeNull();
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+  });
+
+  test('the form does not come back when the selection returns to the same payment', async () => {
+    const user = userEvent.setup();
+    const other: Payment = { ...pay1, id: 'pay_3' };
+    stubFetch((url) => ({ body: details(url.endsWith('pay_3') ? other : pay1) }));
+    const { rerender } = render(<PaymentPanel payment={pay1} onChanged={() => {}} />);
+    await user.click(await screen.findByTestId('refund-open'));
+    rerender(<PaymentPanel payment={other} onChanged={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId('payment-panel-id').textContent).toBe('pay_3'));
+    rerender(<PaymentPanel payment={pay1} onChanged={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('refund-open')).not.toBeNull());
+    expect(screen.queryByTestId('refund-amount')).toBeNull();
+  });
+
+  test('prefers the freshly loaded status over the list row', async () => {
+    stubFetch(() => ({ body: details({ ...pay2, status: 'succeeded' }) }));
+    render(<PaymentPanel payment={pay2} onChanged={() => {}} />);
+    expect(await screen.findByTestId('refund-open')).not.toBeNull();
+    expect(screen.getByTestId('payment-panel').textContent).toContain('оплачен');
+  });
+
+  test('notifies when the refund completes before the next poll', async () => {
+    const user = userEvent.setup();
+    let refunds: PaymentDetails['refunds'] = [];
+    stubFetch((url, init) => {
+      if (init?.method === 'POST') {
+        refunds = [refund('ref_1', 20000, 'succeeded')];
+        return { status: 201, body: refunds[0] };
+      }
+      return { body: details(pay1, refunds) };
+    });
+    const onChanged = vi.fn();
+    render(<PaymentPanel payment={pay1} onChanged={onChanged} />);
+    await user.click(await screen.findByTestId('refund-open'));
+    await user.type(screen.getByTestId('refund-amount'), '200');
+    await user.click(screen.getByTestId('refund-submit'));
+    await screen.findByText('выполнен');
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
 });

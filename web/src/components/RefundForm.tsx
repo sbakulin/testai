@@ -8,10 +8,14 @@ interface Props {
   onCancel(): void;
 }
 
+const UNKNOWN_OUTCOME = 'Исход неизвестен: проверьте список возвратов, прежде чем повторять';
+
 const SUBMIT_ERRORS: Record<string, string> = {
   refund_exceeds_payment: 'Сумма возврата больше остатка по платежу',
   payment_not_succeeded: 'Платёж не оплачен, вернуть деньги нельзя',
-  stand_unavailable: 'Платёжный провайдер временно недоступен, попробуйте позже',
+  provider_rejected: 'Провайдер отклонил возврат',
+  provider_error: UNKNOWN_OUTCOME,
+  stand_unavailable: UNKNOWN_OUTCOME,
 };
 
 const GENERIC_ERROR = 'Не удалось оформить возврат, попробуйте ещё раз';

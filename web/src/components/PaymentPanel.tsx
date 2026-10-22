@@ -20,24 +20,31 @@ export function PaymentPanel({ payment, onChanged }: Props) {
   // Пока идёт загрузка выбранного платежа, в data ещё лежит предыдущий — его возвраты не показываем
   const details = data?.id === payment.id ? data : undefined;
   const refunds = details?.refunds;
+  const shown = details ?? payment;
   const processing = refunds?.some((r) => r.status === 'processing') ?? false;
   const refunded = (refunds ?? [])
     .filter((r) => r.status === 'processing' || r.status === 'succeeded')
     .reduce((sum, r) => sum + r.amount_minor, 0);
-  const remaining = payment.amount_minor - refunded;
-  const canRefund = payment.status === 'succeeded' && remaining > 0 && refunds !== undefined;
+  const remaining = shown.amount_minor - refunded;
+  const canRefund = shown.status === 'succeeded' && remaining > 0 && refunds !== undefined;
 
   const onChangedRef = useRef(onChanged);
   onChangedRef.current = onChanged;
-  const seen = useRef<{ id: string; processing: boolean } | undefined>(undefined);
+  const seen = useRef<{ id: string; signature: string } | undefined>(undefined);
 
   useEffect(() => {
+    setFormFor(undefined);
+  }, [payment.id]);
+
+  // Любое изменение набора статусов возвратов выбранного платежа — повод обновить остаток на счёте
+  useEffect(() => {
     if (!details) return;
-    if (seen.current?.id === details.id && seen.current.processing && !processing) {
+    const signature = details.refunds.map((r) => `${r.id}:${r.status}`).join(',');
+    if (seen.current?.id === details.id && seen.current.signature !== signature) {
       onChangedRef.current();
     }
-    seen.current = { id: details.id, processing };
-  }, [details, processing]);
+    seen.current = { id: details.id, signature };
+  }, [details]);
 
   useEffect(() => {
     if (!processing) return;
@@ -46,10 +53,13 @@ export function PaymentPanel({ payment, onChanged }: Props) {
   }, [processing, reload]);
 
   async function submit(amountMinor: number) {
-    await createRefund(payment.id, amountMinor);
-    setFormFor(undefined);
-    reload();
-    onChanged();
+    try {
+      await createRefund(payment.id, amountMinor);
+      setFormFor(undefined);
+    } finally {
+      // Возврат мог быть создан, даже если запрос завершился ошибкой
+      reload();
+    }
   }
 
   if (isNotConnected(error)) return <NotConnected />;
@@ -60,12 +70,12 @@ export function PaymentPanel({ payment, onChanged }: Props) {
       <dl>
         <dt>Статус</dt>
         <dd>
-          <span className={`status status-${payment.status}`}>{paymentStatusLabel(payment.status)}</span>
+          <span className={`status status-${shown.status}`}>{paymentStatusLabel(shown.status)}</span>
         </dd>
         <dt>Сумма</dt>
-        <dd>{formatSums(payment.amount_minor)}</dd>
+        <dd>{formatSums(shown.amount_minor)}</dd>
         <dt>Создан</dt>
-        <dd>{formatDate(payment.created_at)}</dd>
+        <dd>{formatDate(shown.created_at)}</dd>
       </dl>
 
       <h3>Возвраты</h3>
@@ -84,7 +94,7 @@ export function PaymentPanel({ payment, onChanged }: Props) {
         </ul>
       )}
 
-      {refunds && payment.status === 'succeeded' && (
+      {refunds && shown.status === 'succeeded' && (
         <p>
           Можно вернуть: <strong data-testid="refundable">{formatSums(Math.max(remaining, 0))}</strong>
         </p>
