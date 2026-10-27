@@ -145,3 +145,40 @@ test('listener prints unreachable message once per outage and stops on abort', a
   assert.equal(lines.length, 1);
   assert.match(lines[0], /порт 8090/);
 });
+
+test('listener treats a 200 without "events" array as an empty list', async () => {
+  const results = [];
+  let polls = 0;
+  const stand = await start((req, res, body) => {
+    if (req.method === 'GET') {
+      polls += 1;
+      if (polls === 1) return json(res, 200, { unexpected: true });
+      if (polls === 2) return json(res, 200, { events: [delivery('d1')] });
+      return setTimeout(() => json(res, 200, { events: [] }), 20);
+    }
+    results.push(JSON.parse(body));
+    json(res, 200, { ok: true });
+  });
+  const target = await start((req, res) => json(res, 200, {}));
+  await runUntilResults(stand, results, 1, { target: target.url });
+  assert.deepEqual(results, [{ status: 200 }]);
+});
+
+test('listener waits 500 ms after an instant empty poll', async () => {
+  let polls = 0;
+  const stand = await start((req, res) => {
+    polls += 1;
+    json(res, 200, { events: [] });
+  });
+  const controller = new AbortController();
+  const done = runListener({
+    env: { STAND_URL: stand.url, STAND_CODE: 'CODE' },
+    wait: 1,
+    signal: controller.signal,
+    log: () => {},
+  });
+  await new Promise((r) => setTimeout(r, 1200));
+  controller.abort();
+  await done;
+  assert.ok(polls >= 2 && polls <= 4, `запросов: ${polls}`);
+});

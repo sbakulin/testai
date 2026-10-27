@@ -123,3 +123,15 @@ test('reset reloads seed from task/seed.json', async () => {
 test('reset without seed.json asks to connect first', async () => {
   await assert.rejects(reset({ root: tmp }), /Нет данных: сначала npm run connect -- КОД/);
 });
+
+test('connect: file names from the bundle cannot escape task/', async () => {
+  const evil = { ...bundle, files: { '../evil.txt': 'x', 'sub/dir/deep.txt': 'y', '..\\win.txt': 'z', 'TASK.md': '# Задача\n' } };
+  await stand.close();
+  stand = await startStub((req, res) => json(res, 200, evil));
+  await connect('CODE', { root: tmp, standUrl: stand.url });
+  assert.equal(existsSync(join(tmp, 'evil.txt')), false);
+  assert.ok(existsSync(join(tmp, 'task/evil.txt')));
+  assert.ok(existsSync(join(tmp, 'task/deep.txt')));
+  assert.ok(existsSync(join(tmp, 'task/win.txt')));
+  assert.ok(existsSync(join(tmp, 'task/TASK.md')));
+});

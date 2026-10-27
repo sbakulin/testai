@@ -72,9 +72,11 @@ export async function runListener({
 
   while (!signal?.aborted) {
     let events;
+    const polledAt = Date.now();
     try {
       const res = await standFetch(env, `/mockpay/events?wait=${wait}`, { timeoutMs: (wait + 10) * 1000, signal });
-      ({ events } = await res.json());
+      const body = await res.json();
+      events = Array.isArray(body?.events) ? body.events : [];
       down = false;
     } catch (err) {
       if (signal?.aborted) break;
@@ -87,6 +89,8 @@ export async function runListener({
       await sleep(RETRY_DELAY_MS, signal);
       continue;
     }
+    // защита от горячего цикла, если стенд отвечает пустым списком мгновенно
+    if (!events.length && Date.now() - polledAt < 200) await sleep(500, signal);
     for (const delivery of events) {
       const task = handle(delivery).finally(() => inflight.delete(task));
       inflight.add(task);

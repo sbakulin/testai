@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadSeedIntoDb } from './lib/db.mjs';
 import { DEFAULT_STAND_URL, runCli, standFetch, writeEnv } from './lib/stand.mjs';
@@ -14,7 +14,10 @@ export async function connect(code, { root = defaultRoot, standUrl = process.env
   const taskDir = join(root, 'task');
   mkdirSync(taskDir, { recursive: true });
   for (const [name, content] of Object.entries(bundle.files)) {
-    writeFileSync(join(taskDir, name), content);
+    // имя берём без каталогов: выйти за пределы task/ нельзя
+    const safe = basename(name.replace(/\\/g, '/'));
+    if (!safe || safe === '.' || safe === '..') continue;
+    writeFileSync(join(taskDir, safe), content);
   }
   writeFileSync(join(taskDir, 'seed.json'), JSON.stringify(bundle.seed, null, 2));
   writeEnv(root, { ...env, WEBHOOK_SECRET: bundle.webhook_secret });
