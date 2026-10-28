@@ -1,4 +1,4 @@
-import { closeSync, openSync, readdirSync, readSync } from 'node:fs';
+import { closeSync, openSync, readdirSync, readSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
@@ -59,7 +59,7 @@ function readHead(file) {
   }
 }
 
-function belongsTo(file, root) {
+function belongsTo(file, roots) {
   const head = readHead(file);
   if (head === null) return false;
   for (const text of head.split('\n').slice(0, HEAD_LINES)) {
@@ -70,7 +70,7 @@ function belongsTo(file, root) {
       continue;
     }
     for (const cwd of [obj?.cwd, obj?.payload?.cwd]) {
-      if (typeof cwd === 'string' && cwd && isInside(cwd, root)) return true;
+      if (typeof cwd === 'string' && cwd && roots.some((r) => isInside(cwd, r))) return true;
     }
   }
   return false;
@@ -78,11 +78,18 @@ function belongsTo(file, root) {
 
 /** Файлы истории Claude Code и Codex, относящиеся к папке root. Абсолютные пути, отсортированные. */
 export function findAgentSessions({ root, homeDir = homedir() }) {
+  const roots = [root];
+  try {
+    const real = realpathSync(root);
+    if (real !== root) roots.push(real);
+  } catch {
+    // папки нет — сравниваем только как есть
+  }
   const dirs = agentDirs(homeDir);
   const found = new Set();
   for (const dir of [dirs.claude, dirs.codex]) {
     for (const file of walk(dir)) {
-      if (belongsTo(file, root)) found.add(file);
+      if (belongsTo(file, roots)) found.add(file);
     }
   }
   return [...found].sort();

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -202,7 +202,7 @@ test('submit uploads the zip after confirmation and prints the final line', asyn
   let received;
   const stand = await standWithSubmit((req, res, body) => {
     received = { url: req.url, method: req.method, type: req.headers['content-type'], body };
-    json(res, 200, { ok: true, received: 6, bytes: body.length });
+    json(res, 200, { ok: true, received: 99, bytes: body.length });
   });
   try {
     writeEnvFile(root, stand.url);
@@ -216,7 +216,8 @@ test('submit uploads the zip after confirmation and prints the final line', asyn
     assert.ok(received.body.length > 0);
     assert.match(out.text(), /diff\.patch/);
     assert.match(out.text(), /Отправить\? \[y\/N\]/);
-    assert.match(out.text(), /Сдано: 6 файлов, история сессии получена/);
+    assert.match(out.text(), /Сдано: 5 файлов, история сессии получена/);
+    assert.doesNotMatch(out.text(), /99/);
   } finally {
     await stand.close();
   }
@@ -224,7 +225,7 @@ test('submit uploads the zip after confirmation and prints the final line', asyn
 
 test('submit prints the manual-export line when no sessions were found', async () => {
   const root = makeRepo();
-  const stand = await standWithSubmit((req, res) => json(res, 200, { ok: true, received: 4, bytes: 1 }));
+  const stand = await standWithSubmit((req, res) => json(res, 200, { ok: true, received: 99, bytes: 1 }));
   try {
     writeEnvFile(root, stand.url);
     const out = capture();
@@ -271,4 +272,46 @@ test('expired code → message «Код не подходит или истёк�
   } finally {
     await stand.close();
   }
+});
+
+test('never packs .env.local, task/, api/data/, node_modules/, dist/ even if .gitignore misses them', async () => {
+  const root = makeRepo();
+  write(join(root, '.gitignore'), '');
+  for (const f of ['.env.local', 'task/TASK.md', 'api/data/app.db', 'node_modules/x', 'dist/a.js', 'web/dist/b.js', 'web/node_modules/y']) {
+    write(join(root, f), 'secret');
+  }
+  write(join(root, 'api', 'src', 'ok.txt'), 'fine');
+  const { files } = await buildSubmission({ root, homeDir });
+  const untracked = files.map((f) => f.name).filter((n) => n.startsWith('untracked/')).sort();
+  assert.deepEqual(untracked, ['untracked/api/src/ok.txt', 'untracked/new.txt'].sort());
+});
+
+test('untracked symlinks are not followed', async () => {
+  const root = makeRepo();
+  const outside = join(tmp, 'outside.txt');
+  write(outside, 'private');
+  symlinkSync(outside, join(root, 'link.txt'));
+  const { files } = await buildSubmission({ root, homeDir });
+  assert.ok(!files.some((f) => f.name === 'untracked/link.txt'));
+});
+
+test('raw size over the limit throws even when the zip would fit', async () => {
+  const root = makeRepo();
+  write(join(root, 'big1.bin'), 'a'.repeat(30000));
+  write(join(root, 'big2.bin'), 'b'.repeat(20000));
+  write(join(root, 'big3.bin'), 'c'.repeat(10000));
+  await assert.rejects(buildSubmission({ root, homeDir, maxBytes: 20000 }), (err) => {
+    assert.match(err.message, /превышает 50 МБ/);
+    assert.ok(err.message.indexOf('big1.bin') < err.message.indexOf('big2.bin'));
+    return true;
+  });
+});
+
+test('finds sessions whose cwd is the real path of a symlinked root', () => {
+  const real = join(tmp, 'real');
+  mkdirSync(real);
+  const link = join(tmp, 'link');
+  symlinkSync(real, link);
+  const file = claudeSession('a.jsonl', realpathSync(real));
+  assert.deepEqual(findAgentSessions({ root: link, homeDir }), [file]);
 });

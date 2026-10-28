@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { lstatSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
@@ -34,50 +34,76 @@ function hasBaseTag(root) {
 }
 
 /** Собирает архив: изменения относительно task-base, неотслеживаемые файлы, история агентов. */
+const EXCLUDED = ['task', 'api/data', 'node_modules', 'dist', '.git'];
+
+/** Файлы, которые никогда не уходят в архив, что бы ни говорил .gitignore. */
+function isExcluded(rel) {
+  const parts = toPosix(rel).split('/');
+  if (parts.length === 1 && parts[0] === '.env.local') return true;
+  const posix = parts.join('/');
+  if (EXCLUDED.some((dir) => posix === dir || posix.startsWith(`${dir}/`))) return true;
+  return parts.some((p) => p === 'node_modules' || p === 'dist' || p === '.git');
+}
+
+function tooBig(entries, total, maxBytes) {
+  const largest = [...entries].sort((a, b) => b.size - a.size).slice(0, 3);
+  const list = largest.map((f) => `${f.name} (${formatSize(f.size)})`).join(', ');
+  return new Error(`Архив превышает 50 МБ (${formatSize(total)}). Самые большие файлы: ${list}`);
+}
+
+/** Собирает архив: изменения относительно task-base, неотслеживаемые файлы, история агентов. */
 export async function buildSubmission({ root, homeDir = homedir(), maxBytes = MAX_BYTES }) {
   if (!hasBaseTag(root)) {
     throw new Error(`Не найден тег ${BASE_TAG}: склонируйте репозиторий заново с тегами (git fetch --tags)`);
   }
-  const files = [];
-  const add = (name, bytes) => files.push({ name, bytes: typeof bytes === 'string' ? Buffer.from(bytes) : bytes });
+  // записи читаются лениво, чтобы проверить размер до загрузки файлов в память
+  const entries = [];
+  const addBytes = (name, bytes) => {
+    const buf = typeof bytes === 'string' ? Buffer.from(bytes) : bytes;
+    entries.push({ name, size: buf.length, read: () => buf });
+  };
+  const addFile = (name, file) => {
+    try {
+      const st = lstatSync(file);
+      if (!st.isFile()) return; // ссылки, каталоги вложенных репозиториев
+      entries.push({ name, size: st.size, read: () => readFileSync(file) });
+    } catch {
+      // нет доступа — пропускаем
+    }
+  };
 
-  add('diff.patch', git(root, ['diff', '--binary', BASE_TAG]));
+  addBytes('diff.patch', git(root, ['diff', '--binary', BASE_TAG]));
 
   const untracked = git(root, ['ls-files', '--others', '--exclude-standard', '-z']).toString('utf8').split('\0').filter(Boolean);
   for (const rel of untracked) {
-    try {
-      add(`untracked/${toPosix(rel)}`, readFileSync(path.join(root, rel)));
-    } catch {
-      // каталог (вложенный репозиторий), битая ссылка или нет доступа
-    }
+    if (!isExcluded(rel)) addFile(`untracked/${toPosix(rel)}`, path.join(root, rel));
   }
 
   const log = git(root, ['log', '--oneline', `${BASE_TAG}..HEAD`]).toString('utf8');
   const status = git(root, ['-c', 'core.quotepath=false', 'status', '--short']).toString('utf8');
-  add('git-log.txt', `# git log --oneline ${BASE_TAG}..HEAD\n${log}\n# git status --short\n${status}`);
+  addBytes('git-log.txt', `# git log --oneline ${BASE_TAG}..HEAD\n${log}\n# git status --short\n${status}`);
 
   const sessions = findAgentSessions({ root, homeDir });
   const dirs = agentDirs(homeDir);
   for (const file of sessions) {
     const kind = file.startsWith(dirs.claude + path.sep) ? 'claude' : 'codex';
-    add(`sessions/${kind}/${toPosix(path.relative(dirs[kind], file))}`, readFileSync(file));
+    addFile(`sessions/${kind}/${toPosix(path.relative(dirs[kind], file))}`, file);
   }
 
-  add('meta.json', JSON.stringify({
+  addBytes('meta.json', JSON.stringify({
     node: process.version,
     platform: process.platform,
     created_at: new Date().toISOString(),
     sessions: sessions.length,
   }, null, 2));
 
-  const zip = zipSync(Object.fromEntries(files.map((f) => [f.name, f.bytes])));
-  if (zip.length > maxBytes) {
-    const largest = [...files].sort((a, b) => b.bytes.length - a.bytes.length).slice(0, 3);
-    const list = largest.map((f) => `${f.name} (${formatSize(f.bytes.length)})`).join(', ');
-    throw new Error(`Архив превышает 50 МБ (${formatSize(zip.length)}). Самые большие файлы: ${list}`);
-  }
+  const rawTotal = entries.reduce((sum, e) => sum + e.size, 0);
+  if (rawTotal > maxBytes) throw tooBig(entries, rawTotal, maxBytes);
+
+  const zip = zipSync(Object.fromEntries(entries.map((e) => [e.name, e.read()])));
+  if (zip.length > maxBytes) throw tooBig(entries, zip.length, maxBytes);
   return {
-    files: files.map((f) => ({ name: f.name, bytes: f.bytes.length })),
+    files: entries.map((e) => ({ name: e.name, bytes: e.size })),
     zip,
     warnings: sessions.length ? [] : ['История сессий агента не найдена'],
     sessions: sessions.length,
@@ -122,12 +148,12 @@ export async function submit({ root = defaultRoot, homeDir = homedir(), yes = fa
     body: zip,
     timeoutMs: 120_000,
   });
-  const reply = await res.json().catch(() => ({}));
-  const count = reply.received ?? files.length;
+  await res.arrayBuffer();
+  const count = files.length;
   output.write(sessions
     ? `Сдано: ${count} файлов, история сессии получена\n`
     : `Сдано: ${count} файлов, история сессии НЕ найдена — экспортируйте вручную (/export) и пришлите интервьюеру\n`);
-  return { sent: true, received: count };
+  return { sent: true, files: count };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
