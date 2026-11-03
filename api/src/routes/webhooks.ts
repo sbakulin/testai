@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { AppDeps } from '../app.js';
 import { transaction } from '../db.js';
 import { postCredit, postDebit } from '../ledger.js';
-import { toMinor } from '../money.js';
+import { toMinor, toSums } from '../money.js';
 
 interface WebhookEvent {
   type: string;
@@ -45,16 +45,17 @@ function signatureMatches(secret: string, rawBody: string, signature: unknown): 
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-export function webhooksRoutes(app: FastifyInstance, { db, webhookSecret }: AppDeps): void {
+export function webhooksRoutes(app: FastifyInstance, { db, receipts, webhookSecret }: AppDeps): void {
   // Подпись считается по сырому телу, поэтому парсер с сырой строкой действует только внутри этого плагина
   app.register(async (scope) => {
     scope.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => done(null, body));
 
-    const findPayment = db.prepare('SELECT id, account_id FROM payments WHERE id = ?');
+    const findPayment = db.prepare('SELECT id, account_id, status FROM payments WHERE id = ?');
     const findRefund = db.prepare('SELECT id, payment_id, amount_minor FROM refunds WHERE id = ?');
     const setPaymentStatus = db.prepare(
       `UPDATE payments SET status = ?, updated_at = ? WHERE id = ? AND status = 'pending'`,
     );
+    const markSucceeded = db.prepare(`UPDATE payments SET status = 'succeeded', updated_at = ? WHERE id = ?`);
     const setRefundStatus = db.prepare(
       `UPDATE refunds SET status = ?, updated_at = ? WHERE id = ? AND status = 'processing'`,
     );
@@ -78,7 +79,7 @@ export function webhooksRoutes(app: FastifyInstance, { db, webhookSecret }: AppD
         case 'payment.succeeded':
         case 'payment.failed': {
           const payment = findPayment.get(event.payment.merchant_reference) as
-            | { id: string; account_id: string }
+            | { id: string; account_id: string; status: string }
             | undefined;
           if (!payment) return reply.code(404).send({ error: 'payment_not_found' });
 
@@ -86,11 +87,12 @@ export function webhooksRoutes(app: FastifyInstance, { db, webhookSecret }: AppD
             setPaymentStatus.run('failed', now, payment.id);
             break;
           }
+          if (payment.status === 'succeeded') break;
+
           const amountMinor = toMinor(event.amount);
-          transaction(db, () => {
-            if (Number(setPaymentStatus.run('succeeded', now, payment.id).changes) === 0) return;
-            postCredit(db, { accountId: payment.account_id, paymentId: payment.id, amountMinor });
-          });
+          postCredit(db, { accountId: payment.account_id, paymentId: payment.id, amountMinor });
+          await receipts.send({ payment_id: payment.id, amount: toSums(amountMinor) });
+          markSucceeded.run(new Date().toISOString(), payment.id);
           break;
         }
         case 'refund.succeeded':

@@ -19,6 +19,7 @@ export function setupApp(overrides: Partial<MockpayClient> = {}) {
   const db = openDb(':memory:');
   migrate(db);
   const refundCalls: RefundCall[] = [];
+  const receiptCalls: { payment_id: string; amount: string }[] = [];
   const mockpay: MockpayClient = {
     async createPayment() {
       return { id: 'mp_1', status: 'pending' };
@@ -32,8 +33,13 @@ export function setupApp(overrides: Partial<MockpayClient> = {}) {
     },
     ...overrides,
   };
-  const app = buildApp({ db, mockpay, receipts: { send: async () => {} }, webhookSecret: WEBHOOK_SECRET });
-  return { app, db, refundCalls };
+  const receipts = {
+    async send(input: { payment_id: string; amount: string }) {
+      receiptCalls.push(input);
+    },
+  };
+  const app = buildApp({ db, mockpay, receipts, webhookSecret: WEBHOOK_SECRET });
+  return { app, db, refundCalls, receiptCalls };
 }
 
 export function insertPayment(

@@ -88,6 +88,15 @@ test('payment.succeeded credits the amount from the webhook, not the stored one'
   assert.equal(getBalance(db, 'acc_1'), 15000000);
 });
 
+test('после зачисления отправляется чек', async () => {
+  const { app, db, receiptCalls } = setupApp();
+  insertPayment(db);
+
+  const r = await deliver(app, paymentEvent('payment.succeeded', 'pay_1', '150000.00'));
+  assert.equal(r.statusCode, 200);
+  assert.deepEqual(receiptCalls, [{ payment_id: 'pay_1', amount: '150000.00' }]);
+});
+
 test('payment.failed marks failed without posting', async () => {
   const { app, db } = setupApp();
   insertPayment(db);
