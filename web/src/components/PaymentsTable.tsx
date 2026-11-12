@@ -1,6 +1,14 @@
 import type { Payment } from '../lib/api';
-import { formatDate, paymentStatusLabel } from '../lib/format';
+import { paymentStatusLabel } from '../lib/format';
 import { formatSums } from '../lib/money';
+
+const DATE_OPTIONS: Intl.DateTimeFormatOptions = {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+};
 
 interface Props {
   payments: Payment[];
@@ -34,7 +42,7 @@ export function PaymentsTable({ payments, selectedId, onSelect }: Props) {
             <td>
               <span className={`status status-${p.status}`}>{paymentStatusLabel(p.status)}</span>
             </td>
-            <td>{formatDate(p.created_at)}</td>
+            <td>{new Intl.DateTimeFormat(undefined, DATE_OPTIONS).format(new Date(p.created_at))}</td>
           </tr>
         ))}
       </tbody>
