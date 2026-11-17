@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createRefund, getPayment, isNotConnected, type Payment } from '../lib/api';
+import { createRefund, isNotConnected, type Payment, type PaymentDetails } from '../lib/api';
 import { formatDate, paymentStatusLabel, refundStatusLabel } from '../lib/format';
 import { formatSums } from '../lib/money';
 import { useResource } from '../lib/useResource';
@@ -14,7 +14,7 @@ interface Props {
 const POLL_INTERVAL_MS = 2000;
 
 export function PaymentPanel({ payment, onChanged }: Props) {
-  const { data, error, reload } = useResource(`payment:${payment.id}`, () => getPayment(payment.id));
+  const { data, error, reload } = useResource<PaymentDetails>(`/payments/${payment.id}`);
   const [formFor, setFormFor] = useState<string>();
 
   // Пока идёт загрузка выбранного платежа, в data ещё лежит предыдущий — его возвраты не показываем

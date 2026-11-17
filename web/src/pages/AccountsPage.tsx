@@ -1,11 +1,11 @@
 import { Link } from 'react-router';
 import { NotConnected } from '../components/NotConnected';
-import { isNotConnected, listAccounts } from '../lib/api';
+import { isNotConnected, type Account } from '../lib/api';
 import { formatSums } from '../lib/money';
 import { useResource } from '../lib/useResource';
 
 export function AccountsPage() {
-  const { data, error } = useResource('accounts', listAccounts);
+  const { data, error } = useResource<Account[]>('/accounts');
 
   if (isNotConnected(error)) return <NotConnected />;
   if (error && !data) return <p className="form-error">Не удалось загрузить счета</p>;

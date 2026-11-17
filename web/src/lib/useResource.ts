@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { apiGet } from './api';
 
 export interface Resource<T> {
   data: T | undefined;
@@ -7,20 +8,21 @@ export interface Resource<T> {
   reload(): void;
 }
 
-/** Загружает данные при смене `key` и по `reload()`. Результат устаревшего запроса игнорируется. */
-export function useResource<T>(key: string, fetcher: () => Promise<T>): Resource<T> {
+export interface ResourceOptions {
+  params?: Record<string, string>;
+}
+
+/** GET-запрос к API при смене адреса или параметров и по `reload()`. Результат устаревшего запроса игнорируется. */
+export function useResource<T>(url: string, options?: ResourceOptions): Resource<T> {
   const [data, setData] = useState<T>();
   const [error, setError] = useState<Error>();
   const [loading, setLoading] = useState(true);
   const [version, setVersion] = useState(0);
-  const fetcherRef = useRef(fetcher);
-  fetcherRef.current = fetcher;
 
   useEffect(() => {
     let current = true;
     setLoading(true);
-    fetcherRef
-      .current()
+    apiGet<T>(url, options?.params)
       .then((value) => {
         if (!current) return;
         setData(value);
@@ -35,7 +37,7 @@ export function useResource<T>(key: string, fetcher: () => Promise<T>): Resource
     return () => {
       current = false;
     };
-  }, [key, version]);
+  }, [url, options, version]);
 
   const reload = useCallback(() => setVersion((v) => v + 1), []);
   return { data, error, loading, reload };

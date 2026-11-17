@@ -64,16 +64,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export const listAccounts = (): Promise<Account[]> => request('/accounts');
+function withParams(path: string, params?: Record<string, string>): string {
+  if (!params) return path;
+  const query = Object.entries(params)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join('&');
+  return query ? `${path}?${query}` : path;
+}
 
-export const getBalance = (accountId: string): Promise<Balance> =>
-  request(`/accounts/${encodeURIComponent(accountId)}/balance`);
-
-export const listPayments = (accountId: string, q: string): Promise<Payment[]> =>
-  request(`/accounts/${encodeURIComponent(accountId)}/payments?q=${encodeURIComponent(q)}`);
-
-export const getPayment = (id: string): Promise<PaymentDetails> =>
-  request(`/payments/${encodeURIComponent(id)}`);
+export const apiGet = <T>(path: string, params?: Record<string, string>): Promise<T> =>
+  request(withParams(path, params));
 
 export const createRefund = (paymentId: string, amountMinor: number): Promise<Refund> =>
   request(`/payments/${encodeURIComponent(paymentId)}/refunds`, {

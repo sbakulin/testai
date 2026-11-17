@@ -7,72 +7,81 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-describe('useResource', () => {
-  test('useResource fetches once per key and again on reload', async () => {
-    const fetcher = vi.fn(async () => 'value');
-    const { result, rerender } = renderHook(({ k }) => useResource(k, fetcher), {
-      initialProps: { k: 'a' },
-    });
-    await waitFor(() => expect(result.current.data).toBe('value'));
-    expect(fetcher).toHaveBeenCalledTimes(1);
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status });
+}
 
-    rerender({ k: 'a' });
-    expect(fetcher).toHaveBeenCalledTimes(1);
+function stubFetch(impl: (url: string) => Promise<Response>) {
+  const fn = vi.fn(impl);
+  vi.stubGlobal('fetch', fn);
+  return fn;
+}
+
+const SEARCH = { params: { q: 'pay_1' } };
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe('useResource', () => {
+  test('useResource fetches once per url and again on reload', async () => {
+    const fn = stubFetch(async (url) => json(url));
+    const { result, rerender } = renderHook(({ url }) => useResource<string>(url), {
+      initialProps: { url: '/a' },
+    });
+    await waitFor(() => expect(result.current.data).toBe('/api/a'));
+    expect(fn).toHaveBeenCalledTimes(1);
+
+    rerender({ url: '/a' });
+    expect(fn).toHaveBeenCalledTimes(1);
 
     act(() => result.current.reload());
-    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fn).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    rerender({ k: 'b' });
-    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(3));
-    await waitFor(() => expect(result.current.loading).toBe(false));
+    rerender({ url: '/b' });
+    await waitFor(() => expect(result.current.data).toBe('/api/b'));
+    expect(fn).toHaveBeenCalledTimes(3);
   });
 
-  test('a new fetcher identity alone does not refetch', async () => {
-    const calls = vi.fn();
-    const { result, rerender } = renderHook(
-      ({ n }) =>
-        useResource('k', async () => {
-          calls();
-          return n;
-        }),
-      { initialProps: { n: 1 } },
-    );
-    await waitFor(() => expect(result.current.data).toBe(1));
-    rerender({ n: 2 });
-    expect(calls).toHaveBeenCalledTimes(1);
-    expect(result.current.data).toBe(1);
+  test('passes params as the query string', async () => {
+    const fn = stubFetch(async (url) => json(url));
+    const { result, rerender } = renderHook(() => useResource<string>('/accounts/acc_1/payments', SEARCH));
+    await waitFor(() => expect(result.current.data).toBe('/api/accounts/acc_1/payments?q=pay_1'));
+    rerender();
+    expect(fn).toHaveBeenCalledTimes(1);
   });
 
   test('ignores the result of an older request and keeps data while reloading', async () => {
-    const first = deferred<string>();
-    const second = deferred<string>();
+    const first = deferred<Response>();
+    const second = deferred<Response>();
     const queue = [first, second];
-    const fetcher = vi.fn(() => queue.shift()!.promise);
-    const { result, rerender } = renderHook(({ k }) => useResource(k, fetcher), {
-      initialProps: { k: 'a' },
+    stubFetch(() => queue.shift()!.promise);
+    const { result, rerender } = renderHook(({ url }) => useResource<string>(url), {
+      initialProps: { url: '/a' },
     });
-    rerender({ k: 'b' });
-    await act(async () => second.resolve('new'));
+    rerender({ url: '/b' });
+    await act(async () => second.resolve(json('new')));
     await waitFor(() => expect(result.current.data).toBe('new'));
-    await act(async () => first.resolve('old'));
+    await act(async () => first.resolve(json('old')));
     expect(result.current.data).toBe('new');
   });
 
   test('keeps previous data visible while loading and exposes errors', async () => {
-    const d = deferred<string>();
-    let fail = false;
-    const fetcher = vi.fn(() => (fail ? d.promise : Promise.resolve('x')));
-    const { result } = renderHook(() => useResource('k', fetcher));
+    const d = deferred<Response>();
+    let slow = false;
+    stubFetch(async (url) => {
+      if (url === '/api/bad') return json({ error: 'boom' }, 500);
+      return slow ? d.promise : json('x');
+    });
+    const { result } = renderHook(() => useResource<string>('/k'));
     await waitFor(() => expect(result.current.data).toBe('x'));
-    fail = true;
+    slow = true;
     act(() => result.current.reload());
     await waitFor(() => expect(result.current.loading).toBe(true));
     expect(result.current.data).toBe('x');
-    await act(async () => d.resolve('y'));
+    await act(async () => d.resolve(json('y')));
     await waitFor(() => expect(result.current.data).toBe('y'));
 
-    const bad = renderHook(() => useResource('k', () => Promise.reject(new Error('boom'))));
+    const bad = renderHook(() => useResource<string>('/bad'));
     await waitFor(() => expect(bad.result.current.error?.message).toBe('boom'));
   });
 });

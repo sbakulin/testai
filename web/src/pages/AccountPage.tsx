@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router';
 import { NotConnected } from '../components/NotConnected';
 import { PaymentPanel } from '../components/PaymentPanel';
 import { PaymentsTable } from '../components/PaymentsTable';
-import { getBalance, isNotConnected, listAccounts, listPayments } from '../lib/api';
+import { isNotConnected, type Account, type Balance, type Payment } from '../lib/api';
 import { formatSums } from '../lib/money';
 import { useResource } from '../lib/useResource';
 
@@ -15,9 +15,9 @@ export function AccountPage() {
 function AccountView({ id }: { id: string }) {
   const [q, setQ] = useState('');
   const [selectedId, setSelectedId] = useState<string>();
-  const accounts = useResource('accounts', listAccounts);
-  const balance = useResource(`balance:${id}`, () => getBalance(id));
-  const payments = useResource(`payments:${id}:${q}`, () => listPayments(id, q));
+  const accounts = useResource<Account[]>('/accounts');
+  const balance = useResource<Balance>(`/accounts/${id}/balance`);
+  const payments = useResource<Payment[]>(`/accounts/${id}/payments`, { params: { q } });
 
   const error = balance.error ?? payments.error ?? accounts.error;
   if (isNotConnected(error)) return <NotConnected />;

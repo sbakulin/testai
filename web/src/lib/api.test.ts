@@ -1,4 +1,4 @@
-import { ApiError, createRefund, listPayments } from './api';
+import { ApiError, apiGet, createRefund } from './api';
 
 function mockFetch(status: number, body: unknown) {
   const fn = vi.fn(async () => new Response(JSON.stringify(body), { status }));
@@ -9,10 +9,12 @@ function mockFetch(status: number, body: unknown) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('api client', () => {
-  test('listPayments prefixes /api and encodes q', async () => {
+  test('apiGet prefixes /api and encodes params', async () => {
     const fn = mockFetch(200, []);
-    await listPayments('acc_1', 'a b');
+    await apiGet('/accounts/acc_1/payments', { q: 'a b' });
     expect(fn).toHaveBeenCalledWith('/api/accounts/acc_1/payments?q=a%20b', undefined);
+    await apiGet('/accounts');
+    expect(fn).toHaveBeenLastCalledWith('/api/accounts', undefined);
   });
 
   test('createRefund posts amount_minor', async () => {
@@ -31,6 +33,6 @@ describe('api client', () => {
       code: 'refund_exceeds_payment',
     });
     mockFetch(503, { error: 'not_connected' });
-    await expect(listPayments('a', '')).rejects.toBeInstanceOf(ApiError);
+    await expect(apiGet('/accounts/a/payments', { q: '' })).rejects.toBeInstanceOf(ApiError);
   });
 });
