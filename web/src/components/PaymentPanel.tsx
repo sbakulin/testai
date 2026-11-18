@@ -3,6 +3,7 @@ import { createRefund, isNotConnected, type Payment, type PaymentDetails } from 
 import { formatDate, paymentStatusLabel, refundStatusLabel } from '../lib/format';
 import { formatSums } from '../lib/money';
 import { useResource } from '../lib/useResource';
+import { useStableCallback } from '../lib/useStableCallback';
 import { NotConnected } from './NotConnected';
 import { RefundForm } from './RefundForm';
 
@@ -46,21 +47,23 @@ export function PaymentPanel({ payment, onChanged }: Props) {
     seen.current = { id: details.id, signature };
   }, [details]);
 
-  useEffect(() => {
-    if (!processing) return;
-    const timer = setInterval(reload, POLL_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, [processing, reload]);
-
-  async function submit(amountMinor: number) {
+  const poll = useStableCallback(() => reload());
+  const closeForm = useStableCallback(() => setFormFor(undefined));
+  const submitRefund = useStableCallback(async (amountMinor: number) => {
     try {
       await createRefund(payment.id, amountMinor);
-      setFormFor(undefined);
+      closeForm();
     } finally {
       // Возврат мог быть создан, даже если запрос завершился ошибкой
       reload();
     }
-  }
+  });
+
+  useEffect(() => {
+    if (!processing) return;
+    const timer = setInterval(poll, POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [processing, poll]);
 
   if (isNotConnected(error)) return <NotConnected />;
 
@@ -106,7 +109,7 @@ export function PaymentPanel({ payment, onChanged }: Props) {
         </button>
       )}
       {canRefund && formFor === payment.id && (
-        <RefundForm paymentId={payment.id} maxMinor={remaining} onSubmit={submit} onCancel={() => setFormFor(undefined)} />
+        <RefundForm paymentId={payment.id} maxMinor={remaining} onSubmit={submitRefund} onCancel={closeForm} />
       )}
     </aside>
   );

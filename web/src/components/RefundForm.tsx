@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { memo, useState, type FormEvent } from 'react';
 import { ApiError } from '../lib/api';
 import { formatSums, parseSumsInput } from '../lib/money';
 
@@ -24,7 +24,7 @@ const GENERIC_ERROR = 'Не удалось оформить возврат, по
 // Введённая, но не отправленная сумма по каждому платежу: форма закрывается при выборе другого платежа
 const drafts = new Map<string, string>();
 
-export function RefundForm({ paymentId, maxMinor, onSubmit, onCancel }: Props) {
+export const RefundForm = memo(function RefundForm({ paymentId, maxMinor, onSubmit, onCancel }: Props) {
   const [text, setText] = useState(() => drafts.get(paymentId) ?? '');
   const [message, setMessage] = useState<string>();
   const [pending, setPending] = useState(false);
@@ -84,4 +84,4 @@ export function RefundForm({ paymentId, maxMinor, onSubmit, onCancel }: Props) {
       </div>
     </form>
   );
-}
+});
