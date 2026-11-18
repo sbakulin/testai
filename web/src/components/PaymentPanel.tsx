@@ -106,7 +106,7 @@ export function PaymentPanel({ payment, onChanged }: Props) {
         </button>
       )}
       {canRefund && formFor === payment.id && (
-        <RefundForm maxMinor={remaining} onSubmit={submit} onCancel={() => setFormFor(undefined)} />
+        <RefundForm paymentId={payment.id} maxMinor={remaining} onSubmit={submit} onCancel={() => setFormFor(undefined)} />
       )}
     </aside>
   );

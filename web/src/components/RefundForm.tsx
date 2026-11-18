@@ -3,6 +3,7 @@ import { ApiError } from '../lib/api';
 import { formatSums, parseSumsInput } from '../lib/money';
 
 interface Props {
+  paymentId: string;
   maxMinor: number;
   onSubmit(amountMinor: number): Promise<void>;
   onCancel(): void;
@@ -20,8 +21,11 @@ const SUBMIT_ERRORS: Record<string, string> = {
 
 const GENERIC_ERROR = 'Не удалось оформить возврат, попробуйте ещё раз';
 
-export function RefundForm({ maxMinor, onSubmit, onCancel }: Props) {
-  const [text, setText] = useState('');
+// Введённая, но не отправленная сумма по каждому платежу: форма закрывается при выборе другого платежа
+const drafts = new Map<string, string>();
+
+export function RefundForm({ paymentId, maxMinor, onSubmit, onCancel }: Props) {
+  const [text, setText] = useState(() => drafts.get(paymentId) ?? '');
   const [message, setMessage] = useState<string>();
   const [pending, setPending] = useState(false);
 
@@ -40,6 +44,7 @@ export function RefundForm({ maxMinor, onSubmit, onCancel }: Props) {
     setPending(true);
     try {
       await onSubmit(amount);
+      drafts.delete(paymentId);
     } catch (err) {
       setMessage((err instanceof ApiError && SUBMIT_ERRORS[err.code]) || GENERIC_ERROR);
     } finally {
@@ -59,6 +64,7 @@ export function RefundForm({ maxMinor, onSubmit, onCancel }: Props) {
           value={text}
           onChange={(e) => {
             setText(e.target.value);
+            drafts.set(paymentId, e.target.value);
             setMessage(undefined);
           }}
         />

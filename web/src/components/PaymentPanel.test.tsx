@@ -158,6 +158,7 @@ describe('PaymentPanel', () => {
     const onChanged = vi.fn();
     render(<PaymentPanel payment={pay1} onChanged={onChanged} />);
     await user.click(await screen.findByTestId('refund-open'));
+    await user.clear(screen.getByTestId('refund-amount'));
     await user.type(screen.getByTestId('refund-amount'), '200');
     await user.click(screen.getByTestId('refund-submit'));
     await screen.findByText('выполнен');

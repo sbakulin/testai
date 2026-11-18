@@ -8,7 +8,7 @@ describe('RefundForm', () => {
     const user = userEvent.setup();
     let finish!: () => void;
     const onSubmit = vi.fn(() => new Promise<void>((r) => (finish = r)));
-    render(<RefundForm maxMinor={100000} onSubmit={onSubmit} onCancel={() => {}} />);
+    render(<RefundForm paymentId="pay_1" maxMinor={100000} onSubmit={onSubmit} onCancel={() => {}} />);
 
     await user.type(screen.getByTestId('refund-amount'), '12,5');
     await user.click(screen.getByTestId('refund-submit'));
@@ -24,7 +24,7 @@ describe('RefundForm', () => {
   test('shows validation message and does not submit invalid amounts', async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn(async () => {});
-    render(<RefundForm maxMinor={1000} onSubmit={onSubmit} onCancel={() => {}} />);
+    render(<RefundForm paymentId="pay_2" maxMinor={1000} onSubmit={onSubmit} onCancel={() => {}} />);
 
     await user.type(screen.getByTestId('refund-amount'), '11');
     await user.click(screen.getByTestId('refund-submit'));
@@ -37,7 +37,7 @@ describe('RefundForm', () => {
     const onSubmit = vi.fn(async () => {
       throw new ApiError(422, 'refund_exceeds_payment');
     });
-    render(<RefundForm maxMinor={100000} onSubmit={onSubmit} onCancel={() => {}} />);
+    render(<RefundForm paymentId="pay_3" maxMinor={100000} onSubmit={onSubmit} onCancel={() => {}} />);
     await user.type(screen.getByTestId('refund-amount'), '5');
     await user.click(screen.getByTestId('refund-submit'));
     expect((await screen.findByRole('alert')).textContent).toContain(
@@ -49,8 +49,32 @@ describe('RefundForm', () => {
   test('cancel calls onCancel', async () => {
     const user = userEvent.setup();
     const onCancel = vi.fn();
-    render(<RefundForm maxMinor={100} onSubmit={async () => {}} onCancel={onCancel} />);
+    render(<RefundForm paymentId="pay_4" maxMinor={100} onSubmit={async () => {}} onCancel={onCancel} />);
     await user.click(screen.getByTestId('refund-cancel'));
     expect(onCancel).toHaveBeenCalled();
+  });
+
+  test('keeps an unsent amount per payment and forgets it after a successful submit', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(async () => {});
+    const amount = () => (screen.getByTestId('refund-amount') as HTMLInputElement).value;
+
+    const first = render(<RefundForm paymentId="pay_10" maxMinor={100000} onSubmit={onSubmit} onCancel={() => {}} />);
+    await user.type(screen.getByTestId('refund-amount'), '15');
+    first.unmount();
+
+    const other = render(<RefundForm paymentId="pay_11" maxMinor={100000} onSubmit={onSubmit} onCancel={() => {}} />);
+    expect(amount()).toBe('');
+    other.unmount();
+
+    const again = render(<RefundForm paymentId="pay_10" maxMinor={100000} onSubmit={onSubmit} onCancel={() => {}} />);
+    expect(amount()).toBe('15');
+    await user.click(screen.getByTestId('refund-submit'));
+    expect(onSubmit).toHaveBeenCalledWith(1500);
+    await waitFor(() => expect((screen.getByTestId('refund-submit') as HTMLButtonElement).disabled).toBe(false));
+    again.unmount();
+
+    render(<RefundForm paymentId="pay_10" maxMinor={100000} onSubmit={onSubmit} onCancel={() => {}} />);
+    expect(amount()).toBe('');
   });
 });
