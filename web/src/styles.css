@@ -1,13 +1,21 @@
 :root {
   --bg: #f5f6f8;
   --surface: #fff;
+  --surface-alt: #fafbfc;
   --border: #dfe2e8;
   --text: #1d2330;
   --muted: #6b7385;
   --accent: #2557d6;
+  --accent-soft: #e3ebff;
+  --hover: #f3f6fd;
   --danger: #c0392b;
   --ok: #1e8e4e;
   --warn: #b7791f;
+  --radius: 6px;
+  --gutter: 24px;
+  --side-width: 340px;
+  --control-height: 36px;
+  --tap-pad: 8px;
 }
 
 * { box-sizing: border-box; }
@@ -17,12 +25,13 @@ body {
   background: var(--bg);
   color: var(--text);
   font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
 }
 
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 h1 { font-size: 22px; margin: 0; }
-h2 { font-size: 16px; margin: 0 0 12px; }
+h2 { font-size: 16px; margin: 0 0 12px; word-break: break-all; }
 h3 { font-size: 14px; margin: 20px 0 8px; }
 code { background: #eceff4; padding: 1px 6px; border-radius: 4px; }
 
@@ -31,62 +40,102 @@ code { background: #eceff4; padding: 1px 6px; border-radius: 4px; }
 
 .topbar {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 4px 12px;
   align-items: baseline;
-  padding: 12px 24px;
+  padding: 12px var(--gutter);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
 .topbar a { font-weight: 600; font-size: 16px; color: var(--text); }
 
-.content { padding: 20px 24px; }
+.content { padding: 20px var(--gutter); }
 
+/* Кнопки и поля */
 button, input {
   font: inherit;
-  padding: 7px 12px;
+  min-height: var(--control-height);
+  padding: 7px 14px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--surface);
   color: var(--text);
 }
-button { cursor: pointer; }
+button { cursor: pointer; touch-action: manipulation; }
 button:disabled { opacity: 0.5; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+/* Таблицы */
 table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); }
 th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
 th.num, td.num { text-align: right; }
-th { font-weight: 600; color: var(--muted); background: #fafbfc; }
+th { font-weight: 600; color: var(--muted); background: var(--surface-alt); white-space: nowrap; }
 .accounts { max-width: 720px; }
-.payments tbody tr { cursor: pointer; }
-.payments tbody tr:hover { background: #f3f6fd; }
-.payments tbody tr.selected { background: #e3ebff; }
+.payments { margin-bottom: 16px; }
+.payments td { white-space: nowrap; }
+.payments tbody tr { cursor: pointer; position: relative; -webkit-tap-highlight-color: transparent; }
+.payments tbody tr:hover { background: var(--hover); }
+.payments tbody tr.selected { background: var(--accent-soft); }
 
-.account-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 16px; }
+/* Строка таблицы целиком — область нажатия не меньше 44 px на сенсорных экранах */
+.payments tbody td:first-child::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(-1 * var(--tap-pad));
+  bottom: calc(-1 * var(--tap-pad));
+}
+
+.account-header { display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; align-items: baseline; margin-bottom: 16px; }
 .balance { font-size: 16px; }
-.toolbar { display: flex; gap: 16px; align-items: center; margin-bottom: 12px; }
-.toolbar input { width: 280px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 12px; }
+.toolbar input { width: 280px; max-width: 100%; }
 
-.layout { display: flex; gap: 20px; align-items: flex-start; }
+/* Раскладка страницы счёта */
+.layout { display: flex; gap: 20px; align-items: flex-start; overflow-x: hidden; }
 .layout-main { flex: 1; min-width: 0; }
-.layout-side { width: 340px; flex: none; position: sticky; top: 16px; }
+.layout-side { width: var(--side-width); flex: none; position: sticky; top: 16px; }
 
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
 .panel dl { display: grid; grid-template-columns: 80px 1fr; gap: 6px 8px; margin: 0; }
 .panel dt { color: var(--muted); }
-.panel dd { margin: 0; }
+.panel dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .refunds { list-style: none; margin: 0 0 12px; padding: 0; }
-.refunds li { display: flex; gap: 10px; align-items: baseline; padding: 4px 0; }
+.refunds li { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 4px 0; }
 
-.status { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #eceff4; }
+.status { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #eceff4; white-space: nowrap; }
 .status-succeeded, .status-refund-succeeded { background: #e1f4e8; color: var(--ok); }
 .status-failed, .status-refund-failed { background: #fbe5e2; color: var(--danger); }
 .status-pending, .status-refund-processing { background: #fbf0d9; color: var(--warn); }
 
 .refund-form { margin-top: 12px; display: grid; gap: 8px; }
 .refund-form label { display: grid; gap: 4px; }
-.actions { display: flex; gap: 8px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .form-error { color: var(--danger); margin: 0; }
 
 .notice { max-width: 480px; margin: 60px auto; padding: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; text-align: center; }
+
+/* Планшеты */
+@media (max-width: 1024px) {
+  :root {
+    --gutter: 16px;
+    --side-width: 300px;
+    --control-height: 44px;
+  }
+  body { font-size: 15px; }
+  .content { padding-top: 16px; padding-bottom: 16px; }
+  th, td { padding: 10px; }
+  .payments th:nth-child(2), .payments td:nth-child(2) { display: none; }
+  .toolbar input { flex: 1 1 240px; width: auto; }
+  .actions button { flex: 1 1 auto; }
+}
+
+/* Планшет в портретной ориентации */
+@media (max-width: 760px) {
+  .layout { flex-direction: column; align-items: stretch; }
+  .layout-side { width: auto; order: -1; position: static; }
+  .payments th:nth-child(5), .payments td:nth-child(5) { display: none; }
+  .notice { margin: 24px auto; }
+}
