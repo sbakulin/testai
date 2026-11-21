@@ -12,23 +12,31 @@ export function migrate(db: DatabaseSync): void {
   db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
 }
 
+const depth = new WeakMap<DatabaseSync, number>();
+
 /**
  * Выполняет fn в одной транзакции; при исключении откатывает.
  * Если транзакция уже открыта, fn выполняется внутри неё: коммит и откат за внешним вызовом.
  */
 export function transaction<T>(db: DatabaseSync, fn: () => T): T {
-  if (db.isTransaction) return fn();
-  db.exec('BEGIN IMMEDIATE');
+  const level = depth.get(db) ?? 0;
+  depth.set(db, level + 1);
   try {
-    const result = fn();
-    db.exec('COMMIT');
-    return result;
-  } catch (err) {
+    if (level > 0) return fn();
+    db.exec('BEGIN IMMEDIATE');
     try {
-      db.exec('ROLLBACK');
-    } catch {
-      // исходная ошибка важнее ошибки отката
+      const result = fn();
+      db.exec('COMMIT');
+      return result;
+    } catch (err) {
+      try {
+        db.exec('ROLLBACK');
+      } catch {
+        // исходная ошибка важнее ошибки отката
+      }
+      throw err;
     }
-    throw err;
+  } finally {
+    depth.set(db, level);
   }
 }

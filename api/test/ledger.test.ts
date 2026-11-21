@@ -85,11 +85,9 @@ test('transaction nests: an outer failure rolls back inner postings', () => {
   assert.throws(() =>
     transaction(db, () => {
       postCredit(db, { accountId: 'acc_1', paymentId: 'pay_1', amountMinor: 100 });
-      assert.equal(db.isTransaction, true);
       throw new Error('boom');
     }),
   );
-  assert.equal(db.isTransaction, false);
   assert.equal(getBalance(db, 'acc_1'), 0);
   const count = db.prepare('SELECT COUNT(*) AS n FROM ledger_postings').get() as { n: number };
   assert.equal(count.n, 0);
@@ -114,4 +112,26 @@ test('failing ROLLBACK does not mask the original error', () => {
       }),
     /original/,
   );
+});
+
+test('transaction nests: an inner failure caught by the outer call keeps the outer transaction', () => {
+  const db = setup();
+  transaction(db, () => {
+    postCredit(db, { accountId: 'acc_1', paymentId: 'pay_1', amountMinor: 100 });
+    assert.throws(() => transaction(db, () => { throw new Error('inner'); }), /inner/);
+    postCredit(db, { accountId: 'acc_1', paymentId: 'pay_1', amountMinor: 50 });
+  });
+  assert.equal(getBalance(db, 'acc_1'), 150);
+});
+
+test('transaction can be opened again after a nested call failed', () => {
+  const db = setup();
+  assert.throws(() => transaction(db, () => transaction(db, () => { throw new Error('boom'); })), /boom/);
+  transaction(db, () => {
+    postCredit(db, { accountId: 'acc_1', paymentId: 'pay_1', amountMinor: 70 });
+  });
+  assert.equal(getBalance(db, 'acc_1'), 70);
+  // после выхода из transaction() новая транзакция открывается без ошибки «within a transaction»
+  db.exec('BEGIN IMMEDIATE');
+  db.exec('ROLLBACK');
 });
