@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -264,7 +266,7 @@ test('expired code → message «Код не подходит или истёк�
   const stand = await standWithSubmit((req, res) => json(res, 403, { detail: 'invalid or expired code' }));
   try {
     writeEnvFile(root, stand.url);
-    await assert.rejects(submit({ root, homeDir, yes: true, output: capture().output }), (err) => {
+    await assert.rejects(submit({ root, homeDir, yes: true, output: capture().output, saveDir: tmp }), (err) => {
       assert.ok(err instanceof StandError);
       assert.match(err.message, /Код не подходит или истёк/);
       return true;
@@ -272,6 +274,71 @@ test('expired code → message «Код не подходит или истёк�
   } finally {
     await stand.close();
   }
+});
+
+/** Путь из строки «Архив сохранён: …» и проверка, что это тот самый архив, что ушёл бы на стенд. */
+function savedArchive(err, saveDir) {
+  const m = err.message.match(/\nАрхив сохранён: (.+) — передайте его интервьюеру другим способом\.$/);
+  assert.ok(m, err.message);
+  const file = m[1];
+  assert.ok(file.startsWith(saveDir), file);
+  assert.match(file, /payments-submission-\d{8}-\d{6}\.zip$/);
+  assert.ok(existsSync(file));
+  assert.equal(err.savedArchive, file);
+  return readFileSync(file);
+}
+
+test('rejected upload (403) → archive saved with the same bytes, path printed', async () => {
+  const root = makeRepo();
+  const saveDir = join(tmp, 'saved');
+  mkdirSync(saveDir);
+  let body;
+  const server = createHttpServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => { body = Buffer.concat(chunks); json(res, 403, { detail: 'invalid or expired code' }); });
+  });
+  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  try {
+    writeEnvFile(root, `http://127.0.0.1:${server.address().port}`);
+    await assert.rejects(submit({ root, homeDir, yes: true, output: capture().output, saveDir }), (err) => {
+      assert.ok(err instanceof StandError);
+      assert.match(err.message, /^Код не подходит или истёк/);
+      const saved = savedArchive(err, saveDir);
+      assert.ok(body.length > 0);
+      assert.ok(saved.equals(body));
+      return true;
+    });
+  } finally {
+    server.closeAllConnections();
+    await new Promise((ok) => server.close(ok));
+  }
+});
+
+test('unreachable stand → archive saved, path printed after the error', async () => {
+  const root = makeRepo();
+  const saveDir = join(tmp, 'saved');
+  mkdirSync(saveDir);
+  // свободный порт, на котором никто не слушает
+  const probe = createServer();
+  await new Promise((ok) => probe.listen(0, '127.0.0.1', ok));
+  const port = probe.address().port;
+  await new Promise((ok) => probe.close(ok));
+  writeEnvFile(root, `http://127.0.0.1:${port}`);
+  const { zip } = await buildSubmission({ root, homeDir });
+  await assert.rejects(submit({ root, homeDir, yes: true, output: capture().output, saveDir }), (err) => {
+    assert.ok(err instanceof StandError);
+    assert.match(err.message, /^Стенд недоступен/);
+    const saved = savedArchive(err, saveDir);
+    // meta.json содержит время сборки, поэтому сверяем побайтно все остальные файлы архива
+    const got = unzipSync(saved);
+    const want = unzipSync(zip);
+    assert.deepEqual(Object.keys(got).sort(), Object.keys(want).sort());
+    for (const name of Object.keys(want)) {
+      if (name !== 'meta.json') assert.ok(Buffer.from(got[name]).equals(Buffer.from(want[name])), name);
+    }
+    return true;
+  });
 });
 
 test('never packs .env.local, task/, api/data/, node_modules/, dist/ even if .gitignore misses them', async () => {

@@ -44,7 +44,7 @@ async function forward(delivery, target, timeoutMs) {
 /** Опрашивает стенд и пересылает вебхуки в локальный сервис, пока не истечёт код или не сработает signal. */
 export async function runListener({
   env,
-  target = 'http://localhost:3000/webhooks/mockpay',
+  target = 'http://127.0.0.1:3000/webhooks/mockpay',
   timeoutMs = 2000,
   signal,
   wait = POLL_WAIT_S,

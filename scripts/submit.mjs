@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { lstatSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { lstatSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -124,8 +124,17 @@ function ask(question, input, output) {
   });
 }
 
+/** Сохраняет архив во временный каталог; имя с локальными датой и временем. */
+function saveZip(zip, dir, now = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const file = path.resolve(dir, `payments-submission-${stamp}.zip`);
+  writeFileSync(file, zip);
+  return file;
+}
+
 /** Собирает архив, показывает состав, после подтверждения отправляет на стенд. */
-export async function submit({ root = defaultRoot, homeDir = homedir(), yes = false, input = process.stdin, output = process.stdout } = {}) {
+export async function submit({ root = defaultRoot, homeDir = homedir(), yes = false, input = process.stdin, output = process.stdout, saveDir = tmpdir() } = {}) {
   const env = readEnv(root);
   if (!env?.STAND_CODE || !env?.STAND_URL) throw new Error('Нет кода: npm run connect -- КОД');
 
@@ -142,13 +151,30 @@ export async function submit({ root = defaultRoot, homeDir = homedir(), yes = fa
     }
   }
 
-  const res = await standFetch(env, '/submit', {
-    method: 'POST',
-    headers: { 'content-type': 'application/zip' },
-    body: zip,
-    timeoutMs: 120_000,
-  });
-  await res.arrayBuffer();
+  try {
+    const res = await standFetch(env, '/submit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/zip' },
+      body: zip,
+      timeoutMs: 120_000,
+    });
+    await res.arrayBuffer();
+  } catch (err) {
+    // архив не должен пропасть вместе с неудачной отправкой
+    let file;
+    try {
+      file = saveZip(zip, saveDir);
+    } catch {
+      throw err;
+    }
+    const note = `Архив сохранён: ${file} — передайте его интервьюеру другим способом.`;
+    if (err instanceof Error) {
+      err.message = `${err.message}\n${note}`;
+      err.savedArchive = file;
+      throw err;
+    }
+    throw new Error(`${String(err)}\n${note}`);
+  }
   const count = files.length;
   output.write(sessions
     ? `Сдано: ${count} файлов, история сессии получена\n`
